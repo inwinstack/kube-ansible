@@ -1,0 +1,38 @@
+---
+
+- when: container_runtime == 'nvidia-docker'
+  raw: "nvidia-smi"
+  ignore_errors: True
+  register: check_driver
+
+# nvidia-docker runtime
+- when: 
+  - container_runtime == 'nvidia-docker'
+  - "'not found' not in check_driver.stdout"
+  include_tasks: nvidia-docker/main.yml
+
+# docker runtime
+- when: container_runtime == 'docker' or container_runtime == 'nvidia-docker'
+  include_tasks: docker/main.yml
+
+# containerd runtime
+- when: container_runtime == 'containerd'
+  include_tasks: containerd/main.yml
+
+- name: Check sysctl k8s file
+  stat: path=/etc/sysctl.d/99-k8s.conf
+  register: check_sysctl_conf
+
+- name: Write bridge-netfilter and ip-forward system variables
+  when: not check_sysctl_conf.stat.exists
+  copy:
+    content: |
+      net.ipv4.ip_forward=1
+      net.bridge.bridge-nf-call-ip6tables=1
+      net.bridge.bridge-nf-call-iptables=1
+    dest: /etc/sysctl.d/99-k8s.conf
+  register: copy_sysctl
+
+- name: Enable bridge-netfilter and ip-forward system variables
+  when: copy_sysctl
+  command: "sysctl -p /etc/sysctl.d/99-k8s.conf"
